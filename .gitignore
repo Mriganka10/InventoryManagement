@@ -4,8 +4,8 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+*.egg-info/
 data/
 .elasticbeanstalk/*
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
-
