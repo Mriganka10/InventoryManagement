@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+
