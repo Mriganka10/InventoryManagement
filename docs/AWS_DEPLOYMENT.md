@@ -1,15 +1,20 @@
-# Elastic Beanstalk Deployment Runbook
+# Shared ECS Deployment Runbook
 
 Region: `ap-south-1`
 
-## Pilot resources
+## WorkshopOS resources
 
-- Elastic Beanstalk application: `workshop-inventory`
-- Environment: `workshop-inventory-pilot`
-- Platform: Docker running on 64-bit Amazon Linux 2023
-- Mode: single instance
+- Existing stack: `kairoz-production-platform`
+- ECS service: `kairoz-inventory-web`
+- Container repository: `kairoz/inventory`
+- ALB target group: `kairoz-inventory`
+- Routing header: `X-Kairoz-Application: inventory`
+- Database/role: `inventory` / `inventory_app` on shared PostgreSQL
+- Runtime secret: `/kairoz/production/inventory/environment`
+- Database credential secret: `/kairoz/production/inventory/database`
+- CloudWatch logs: `/kairoz/production/inventory`
+- Public entrypoint: CloudFront default hostname until a custom domain is approved
 - Health endpoint: `/health`
-- Database: PostgreSQL recommended; SQLite allowed only for disposable pilot data
 - Email: Amazon SES v2
 
 ## Required environment values
@@ -29,7 +34,7 @@ Grant the EC2 instance profile `ses:GetEmailIdentity`, `ses:CreateEmailIdentity`
 
 ## Deployment
 
-Run `scripts/aws/deploy_elastic_beanstalk.sh` after configuring AWS CLI credentials and the required environment variables. The script performs identity preflight, packages an immutable source bundle, creates or updates the environment and waits for health.
+Run `python scripts/aws/deploy_shared_ecs.py` from an authenticated AWS shell. It discovers the existing shared platform, refuses an EC2 scale-out unless `ALLOW_SCALE_OUT=1`, creates only isolated usage-priced resources, builds the ARM64 image on the existing ECS host, deploys one web task, creates the CloudFront entrypoint, and waits for public health.
 
 ## Production hardening
 

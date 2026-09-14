@@ -51,4 +51,4 @@ Interactive API documentation is available at `/docs`. All business endpoints re
 
 See [AWS architecture](docs/ARCHITECTURE.md), [database design](docs/DATABASE_SCHEMA.md), and [deployment runbook](docs/AWS_DEPLOYMENT.md).
 
-The lowest-cost public pilot is a single-instance Elastic Beanstalk Docker environment. Production should use RDS PostgreSQL with automated backups; SQLite is local/demo only.
+Production reuses the existing Kairoz CloudFront, ALB, ECS/EC2, RDS and networking platform. WorkshopOS adds no standalone Elastic Beanstalk instance or RDS instance. SQLite is local-test only.

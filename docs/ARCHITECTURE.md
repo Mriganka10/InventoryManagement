@@ -1,23 +1,26 @@
 # AWS Architecture
 
-## Cost-optimized pilot
+## Cost-optimized production
 
 ```text
 Public user
-    │ HTTPS / EB hostname
+    │ HTTPS / CloudFront hostname
     ▼
-Elastic Beanstalk single-instance environment
-    └── EC2 t3.small + nginx + Docker/FastAPI
+WorkshopOS CloudFront distribution (usage-priced; default hostname initially)
+    │ X-Kairoz-Application: inventory
+    ▼
+Existing shared Application Load Balancer
+    ▼
+Isolated WorkshopOS ECS service on the existing shared Graviton capacity
+    └── Docker/FastAPI web task
           ├── SES v2: verification links and OTP email
-          ├── CloudWatch: application/health logs
-          ├── S3: future invoices, imports and backups
+          ├── Dedicated CloudWatch log group
+          ├── Dedicated S3 bucket/prefix
           ├── Bedrock: optional dashboard narrative only
-          └── PostgreSQL
-                ├── pilot: existing/shared RDS logical database when permitted
-                └── production: encrypted RDS db.t4g.micro/small
+          └── Dedicated database and role on existing shared encrypted PostgreSQL
 ```
 
-The pilot keeps one application process and uses server-side HTML/JavaScript, which avoids a separate frontend hosting bill. Elastic Beanstalk manages nginx, health checks, application versions and rolling replacement. Static assets are packaged with the container.
+The application keeps one web process and uses server-side HTML/JavaScript, avoiding a separate frontend host. ECS manages health checks and rolling replacement. The deployment performs a capacity preflight and refuses to scale the shared EC2 group unless explicitly authorized, preventing surprise compute cost.
 
 ## Tenant and security boundaries
 
@@ -42,4 +45,3 @@ The PWA service worker caches the application shell and last successful GET resp
 ## AI boundary
 
 The decision engine calculates deterministic evidence first. It produces reorder, expiry, receivables and capacity recommendations. Amazon Bedrock is optional and only summarizes grounded KPI/action JSON. It is never allowed to mutate stock, create a purchase, change a price or contact a customer without approval.
-
