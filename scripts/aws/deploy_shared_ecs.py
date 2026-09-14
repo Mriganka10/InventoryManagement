@@ -141,7 +141,7 @@ def ensure_database(outputs: dict[str, str], secrets, iam, ssm, ecs) -> str:
     master_secret = outputs["DatabaseMasterSecretArn"]
     put_policy(iam, instance_role, "inventory-database-bootstrap-temporary", [{"Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": [master_secret, db_secret_arn]}])
     command = "\n".join([
-        "set -euo pipefail", "sudo dnf install -y postgresql15 >/dev/null",
+        "set -euo pipefail", "command -v psql >/dev/null || sudo dnf install -y postgresql18 >/dev/null",
         f"region={REGION}", f"endpoint={outputs['DatabaseEndpoint']}", f"master_secret='{master_secret}'", f"app_secret='{db_secret_arn}'",
         'master_json=$(aws secretsmanager get-secret-value --region "$region" --secret-id "$master_secret" --query SecretString --output text)',
         'app_json=$(aws secretsmanager get-secret-value --region "$region" --secret-id "$app_secret" --query SecretString --output text)',
