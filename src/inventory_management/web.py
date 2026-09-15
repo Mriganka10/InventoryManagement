@@ -68,6 +68,11 @@ def request_otp(email: Annotated[str, Form()] = "") -> dict:
     return auth.request_otp(email)
 
 
+@app.post("/api/auth/resend-verification")
+def resend_verification(email: Annotated[str, Form()] = "") -> dict:
+    return auth.resend_verification(email)
+
+
 @app.get("/api/auth/verify-email")
 def verify_email(token: str = ""):
     auth.confirm_email(token)

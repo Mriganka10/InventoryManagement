@@ -159,6 +159,28 @@ def register_email(email: str, workshop_name: str) -> dict:
     }
 
 
+def resend_verification(email: str) -> dict:
+    email = validate_email(email)
+    with SessionLocal.begin() as db:
+        if db.scalar(select(User).where(User.email == email)):
+            return {"status": "verified", "email": email, "message": "Account already exists. Request an OTP to sign in."}
+        pending = db.scalar(select(PendingRegistration).where(PendingRegistration.email == email))
+        if not pending:
+            raise HTTPException(404, "No pending registration exists for this email. Create the workshop first.")
+    if EMAIL_PROVIDER not in {"ses", "smtp"}:
+        return {"status": "verified", "email": email, "message": "Email is verified in local development."}
+    if not _send_verification_link(email, verification_token(email)):
+        raise HTTPException(503, "The verification email could not be sent. Please try again shortly.")
+    with SessionLocal.begin() as db:
+        record = db.scalar(select(EmailVerification).where(EmailVerification.email == email))
+        if record:
+            record.status, record.provider = "PENDING", EMAIL_PROVIDER
+            record.detail, record.verified_at = "WorkshopOS verification link re-sent and accepted for delivery.", None
+        else:
+            db.add(EmailVerification(email=email, status="PENDING", provider=EMAIL_PROVIDER, detail="WorkshopOS verification link re-sent and accepted for delivery."))
+    return {"status": "pending", "email": email, "message": "A fresh verification link was accepted for delivery. Check Inbox and Spam."}
+
+
 def request_otp(email: str) -> dict:
     email = validate_email(email)
     with SessionLocal.begin() as db:

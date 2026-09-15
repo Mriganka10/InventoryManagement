@@ -77,6 +77,7 @@ def test_production_registration_requires_signed_email_link(monkeypatch):
     registration = client.post("/api/auth/register-email", data={"email": email, "workshop_name": "Signed Link Motors"})
     assert registration.status_code == 200
     assert registration.json()["status"] == "pending"
+    assert client.post("/api/auth/resend-verification", data={"email": email}).status_code == 200
     assert client.post("/api/auth/request-otp", data={"email": email}).status_code == 403
 
     confirmation = client.get(f"/api/auth/verify-email?token={auth.verification_token(email)}", follow_redirects=False)
