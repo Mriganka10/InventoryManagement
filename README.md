@@ -37,7 +37,8 @@ Copy `.env.example` values into your runtime environment. Production minimums ar
 - `INVENTORY_DATABASE_URL`: PostgreSQL connection string.
 - `INVENTORY_SECRET_KEY`: long random cookie/OTP signing secret.
 - `INVENTORY_EMAIL_PROVIDER=ses`.
-- `INVENTORY_SES_FROM`: preferably a verified sender/domain. If omitted during a pilot, each newly verified address sends its own OTP to itself.
+- `INVENTORY_SES_FROM`: required verified sender/domain used for verification links and OTPs.
+- `INVENTORY_PUBLIC_BASE_URL`: public HTTPS origin used in signed email-verification links.
 - `INVENTORY_DEV_RETURN_OTP=false`.
 - `INVENTORY_COOKIE_SECURE=true`.
 

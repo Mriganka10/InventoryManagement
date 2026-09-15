@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from inventory_management import auth
 from inventory_management.web import app
 
 
@@ -64,3 +65,21 @@ def test_customer_invoice_and_payment_flow():
     payment = client.post(f"/api/invoices/{invoice.json()['id']}/payments", json={"amount": 1180, "method": "UPI"})
     assert payment.status_code == 200
     assert payment.json()["invoice"]["status"] == "paid"
+
+
+def test_production_registration_requires_signed_email_link(monkeypatch):
+    email = "signed-link@example.com"
+    client = TestClient(app)
+    monkeypatch.setattr(auth, "EMAIL_PROVIDER", "ses")
+    monkeypatch.setattr(auth, "_send_verification_link", lambda destination, token: destination == email and bool(token))
+    monkeypatch.setattr(auth, "_send_otp", lambda destination, otp: destination == email and len(otp) == 6)
+
+    registration = client.post("/api/auth/register-email", data={"email": email, "workshop_name": "Signed Link Motors"})
+    assert registration.status_code == 200
+    assert registration.json()["status"] == "pending"
+    assert client.post("/api/auth/request-otp", data={"email": email}).status_code == 403
+
+    confirmation = client.get(f"/api/auth/verify-email?token={auth.verification_token(email)}", follow_redirects=False)
+    assert confirmation.status_code == 303
+    assert confirmation.headers["location"] == "/login?verified=1"
+    assert client.post("/api/auth/request-otp", data={"email": email}).status_code == 200

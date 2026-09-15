@@ -27,11 +27,12 @@ INVENTORY_COOKIE_SECURE=true
 INVENTORY_DEV_RETURN_OTP=false
 INVENTORY_EMAIL_PROVIDER=ses
 INVENTORY_SES_REGION=ap-south-1
-INVENTORY_SES_FROM=<preferred verified sender; optional for self-sender pilot>
+INVENTORY_SES_FROM=WorkshopOS <no-reply@jobhuntingagent.in>
+INVENTORY_PUBLIC_BASE_URL=https://djn5rprshgdy5.cloudfront.net
 AWS_REGION=ap-south-1
 ```
 
-Grant the EC2 instance profile `ses:GetEmailIdentity`, `ses:CreateEmailIdentity` and `ses:SendEmail`. Add `bedrock:InvokeModel` only when `INVENTORY_BEDROCK_MODEL_ID` is configured.
+Grant the ECS task role `ses:SendEmail`. Add `bedrock:InvokeModel` only when `INVENTORY_BEDROCK_MODEL_ID` is configured.
 
 ## Deployment
 

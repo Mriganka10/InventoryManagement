@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -30,12 +31,15 @@ from .models import (
 SESSION_COOKIE = "workshop_session"
 SESSION_MAX_AGE = int(os.getenv("INVENTORY_SESSION_MAX_AGE_SECONDS", str(60 * 60 * 12)))
 OTP_TTL_MINUTES = int(os.getenv("INVENTORY_OTP_TTL_MINUTES", "10"))
+VERIFICATION_TTL_HOURS = int(os.getenv("INVENTORY_VERIFICATION_TTL_HOURS", "24"))
 SECRET = os.getenv("INVENTORY_SECRET_KEY", "local-dev-change-me")
 COOKIE_SECURE = os.getenv("INVENTORY_COOKIE_SECURE", "false").lower() == "true"
 DEV_RETURN_OTP = os.getenv("INVENTORY_DEV_RETURN_OTP", "true").lower() == "true"
 EMAIL_PROVIDER = os.getenv("INVENTORY_EMAIL_PROVIDER", "console").strip().lower()
 SES_REGION = os.getenv("INVENTORY_SES_REGION", os.getenv("AWS_REGION", "ap-south-1"))
+PUBLIC_BASE_URL = os.getenv("INVENTORY_PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
 EMAIL_PATTERN = re.compile(r"^(?=.{6,254}$)(?!.*\.\.)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}$", re.I)
+logger = logging.getLogger(__name__)
 
 if COOKIE_SECURE and SECRET == "local-dev-change-me":
     raise RuntimeError("Set INVENTORY_SECRET_KEY before enabling secure cookies.")
@@ -59,6 +63,14 @@ def _signed(payload: dict) -> str:
     return f"{raw}.{signature}"
 
 
+def _unsigned(token: str) -> dict:
+    raw, signature = token.split(".", 1)
+    expected = hmac.new(SECRET.encode(), raw.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("Invalid signature")
+    return json.loads(base64.urlsafe_b64decode((raw + "=" * (-len(raw) % 4)).encode()))
+
+
 def session_token(email: str) -> str:
     return _signed({"email": normalize_email(email), "iat": int(time.time())})
 
@@ -67,11 +79,7 @@ def session_email(token: str | None) -> str | None:
     if not token:
         return None
     try:
-        raw, signature = token.split(".", 1)
-        expected = hmac.new(SECRET.encode(), raw.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(base64.urlsafe_b64decode((raw + "=" * (-len(raw) % 4)).encode()))
+        payload = _unsigned(token)
         if int(payload.get("iat", 0)) + SESSION_MAX_AGE < int(time.time()):
             return None
         return validate_email(str(payload["email"]))
@@ -90,6 +98,33 @@ def _otp_hash(email: str, otp: str) -> str:
     return hmac.new(SECRET.encode(), f"{normalize_email(email)}:{otp}".encode(), hashlib.sha256).hexdigest()
 
 
+def verification_token(email: str) -> str:
+    return _signed({"purpose": "verify-email", "email": validate_email(email), "iat": int(time.time())})
+
+
+def confirm_email(token: str) -> str:
+    try:
+        payload = _unsigned(token)
+        issued_at = int(payload.get("iat", 0))
+        if payload.get("purpose") != "verify-email" or issued_at + VERIFICATION_TTL_HOURS * 3600 < int(time.time()):
+            raise ValueError("Expired or incorrect token")
+        email = validate_email(str(payload["email"]))
+    except Exception as exc:
+        raise HTTPException(400, "This verification link is invalid or expired. Request a new link.") from exc
+    with SessionLocal.begin() as db:
+        pending = db.scalar(select(PendingRegistration).where(PendingRegistration.email == email))
+        if not pending:
+            raise HTTPException(400, "No pending workshop registration exists for this email.")
+        record = db.scalar(select(EmailVerification).where(EmailVerification.email == email))
+        if record:
+            record.status, record.provider = "SUCCESS", EMAIL_PROVIDER
+            record.detail, record.verified_at = "WorkshopOS signed verification link confirmed.", utcnow()
+        else:
+            db.add(EmailVerification(email=email, status="SUCCESS", provider=EMAIL_PROVIDER, detail="WorkshopOS signed verification link confirmed.", verified_at=utcnow()))
+        pending.verification_status = "verified"
+    return email
+
+
 def register_email(email: str, workshop_name: str) -> dict:
     email = validate_email(email)
     workshop_name = workshop_name.strip()
@@ -105,21 +140,13 @@ def register_email(email: str, workshop_name: str) -> dict:
         else:
             db.add(PendingRegistration(email=email, workshop_name=workshop_name))
 
-    if EMAIL_PROVIDER == "ses":
-        try:
-            response = _ses().get_email_identity(EmailIdentity=email)
-            status = str(response.get("VerificationStatus") or "NOT_STARTED")
-            if status.upper() != "SUCCESS":
-                _ses().create_email_identity(EmailIdentity=email)
-                status = "PENDING"
-        except Exception as exc:
-            raise HTTPException(503, f"Unable to request the verification email: {exc}") from exc
-    else:
-        status = "SUCCESS"
+    status = "PENDING" if EMAIL_PROVIDER in {"ses", "smtp"} else "SUCCESS"
+    if status == "PENDING" and not _send_verification_link(email, verification_token(email)):
+        raise HTTPException(503, "The verification email could not be sent. Please try again shortly.")
 
     with SessionLocal.begin() as db:
         record = db.scalar(select(EmailVerification).where(EmailVerification.email == email))
-        detail = "AWS SES verification link requested." if EMAIL_PROVIDER == "ses" else "Local verification completed."
+        detail = "WorkshopOS verification link accepted for delivery." if status == "PENDING" else "Local verification completed."
         if record:
             record.status, record.provider, record.detail = status, EMAIL_PROVIDER, detail
             record.verified_at = utcnow() if status == "SUCCESS" else None
@@ -128,7 +155,7 @@ def register_email(email: str, workshop_name: str) -> dict:
     return {
         "status": "verified" if status == "SUCCESS" else "pending",
         "email": email,
-        "message": "Verification email sent. Click its link, then request an OTP." if status != "SUCCESS" else "Email verified. Request an OTP to sign in.",
+        "message": "Verification link accepted for delivery. Check Inbox and Spam, then click it before requesting an OTP." if status != "SUCCESS" else "Email verified. Request an OTP to sign in.",
     }
 
 
@@ -137,15 +164,9 @@ def request_otp(email: str) -> dict:
     with SessionLocal.begin() as db:
         user = db.scalar(select(User).where(User.email == email))
         verification = db.scalar(select(EmailVerification).where(EmailVerification.email == email))
-        if EMAIL_PROVIDER == "ses" and not user:
-            try:
-                status = str(_ses().get_email_identity(EmailIdentity=email).get("VerificationStatus") or "NOT_STARTED")
-            except Exception as exc:
-                raise HTTPException(503, "Unable to check email verification status.") from exc
-            if status.upper() != "SUCCESS":
-                raise HTTPException(403, "Email is not verified. Use New workshop registration and click the verification link first.")
-            if verification:
-                verification.status, verification.verified_at = "SUCCESS", utcnow()
+        if EMAIL_PROVIDER in {"ses", "smtp"} and not user:
+            if not verification or verification.status.upper() != "SUCCESS" or not verification.verified_at or not verification.detail.startswith("WorkshopOS signed"):
+                raise HTTPException(403, "Email is not verified. Use New workshop registration and click the WorkshopOS verification link first.")
         if not user:
             pending = db.scalar(select(PendingRegistration).where(PendingRegistration.email == email))
             if not pending:
@@ -206,21 +227,22 @@ def _ses():
     return boto3.client("sesv2", region_name=SES_REGION)
 
 
-def _send_otp(email: str, otp: str) -> bool:
-    subject = "Your WorkshopOS sign-in code"
-    body = f"Your WorkshopOS OTP is {otp}. It expires in {OTP_TTL_MINUTES} minutes."
+def _send_message(email: str, subject: str, body: str) -> bool:
     if EMAIL_PROVIDER == "ses":
-        # A fixed verified domain is preferred. During a low-cost SES pilot the
-        # newly verified recipient identity can also send its own OTP.
-        sender = os.getenv("INVENTORY_SES_FROM", "").strip() or email
+        sender = os.getenv("INVENTORY_SES_FROM", "").strip()
+        if not sender:
+            logger.error("SES delivery is disabled because INVENTORY_SES_FROM is not configured")
+            return False
         try:
-            _ses().send_email(
+            response = _ses().send_email(
                 FromEmailAddress=sender,
                 Destination={"ToAddresses": [email]},
                 Content={"Simple": {"Subject": {"Data": subject}, "Body": {"Text": {"Data": body}}}},
             )
+            logger.info("SES accepted %s email for %s; message_id=%s", subject, email, response.get("MessageId", "unknown"))
             return True
         except Exception:
+            logger.exception("SES rejected %s email for %s", subject, email)
             return False
     if EMAIL_PROVIDER == "smtp":
         host = os.getenv("INVENTORY_SMTP_HOST", "")
@@ -235,5 +257,22 @@ def _send_otp(email: str, otp: str) -> bool:
         with smtplib.SMTP(host, int(os.getenv("INVENTORY_SMTP_PORT", "587"))) as smtp:
             smtp.starttls(); smtp.login(username, password); smtp.send_message(message)
         return True
+    return False
+
+
+def _send_verification_link(email: str, token: str) -> bool:
+    link = f"{PUBLIC_BASE_URL}/api/auth/verify-email?token={token}"
+    return _send_message(
+        email,
+        "Verify your WorkshopOS email",
+        f"Welcome to WorkshopOS. Verify your email by opening this link within {VERIFICATION_TTL_HOURS} hours:\n\n{link}\n\nIf you did not request this, ignore this email.",
+    )
+
+
+def _send_otp(email: str, otp: str) -> bool:
+    subject = "Your WorkshopOS sign-in code"
+    body = f"Your WorkshopOS OTP is {otp}. It expires in {OTP_TTL_MINUTES} minutes."
+    if EMAIL_PROVIDER in {"ses", "smtp"}:
+        return _send_message(email, subject, body)
     print(f"[workshop-os] OTP for {email}: {otp}")
     return False

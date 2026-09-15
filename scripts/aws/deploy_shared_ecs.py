@@ -182,6 +182,8 @@ def ensure_runtime_secret(secrets, database_url: str) -> tuple[str, list[dict]]:
         "INVENTORY_SECRET_KEY": values.get("INVENTORY_SECRET_KEY") or secure_random.token_urlsafe(48),
         "INVENTORY_COOKIE_SECURE": "true", "INVENTORY_DEV_RETURN_OTP": "false",
         "INVENTORY_EMAIL_PROVIDER": "ses", "INVENTORY_SES_REGION": REGION,
+        "INVENTORY_SES_FROM": values.get("INVENTORY_SES_FROM") or os.getenv("INVENTORY_SES_FROM", "WorkshopOS <no-reply@jobhuntingagent.in>"),
+        "INVENTORY_PUBLIC_BASE_URL": values.get("INVENTORY_PUBLIC_BASE_URL") or os.getenv("INVENTORY_PUBLIC_BASE_URL", "https://djn5rprshgdy5.cloudfront.net"),
     })
     secrets.put_secret_value(SecretId=RUNTIME_SECRET, SecretString=json.dumps(values, sort_keys=True, separators=(",", ":")))
     entries = [{"name": key, "valueFrom": f"{arn}:{key}::"} for key in sorted(values)]
@@ -344,7 +346,7 @@ def main() -> None:
     task_role = ensure_role(iam, task_name, "ecs-tasks.amazonaws.com")
     put_policy(iam, task_name, "inventory-runtime", [
         {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"], "Resource": [f"arn:aws:s3:::{bucket}", f"arn:aws:s3:::{bucket}/*"]},
-        {"Effect": "Allow", "Action": ["ses:GetEmailIdentity", "ses:CreateEmailIdentity", "ses:SendEmail", "sesv2:SendEmail"], "Resource": "*"},
+        {"Effect": "Allow", "Action": ["ses:SendEmail", "sesv2:SendEmail"], "Resource": "*"},
         {"Effect": "Allow", "Action": "bedrock:InvokeModel", "Resource": "*"},
     ])
     tag = IMAGE_TAG or subprocess.check_output(["git", "rev-parse", "--short=12", "HEAD"], text=True).strip()
