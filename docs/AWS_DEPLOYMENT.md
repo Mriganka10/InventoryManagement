@@ -13,7 +13,8 @@ Region: `ap-south-1`
 - Runtime secret: `/kairoz/production/inventory/environment`
 - Database credential secret: `/kairoz/production/inventory/database`
 - CloudWatch logs: `/kairoz/production/inventory`
-- Public entrypoint: CloudFront default hostname until a custom domain is approved
+- CloudFront distribution: `E2EWEQPY3RID5K`
+- Public entrypoint: `https://djn5rprshgdy5.cloudfront.net`
 - Health endpoint: `/health`
 - Email: Amazon SES v2
 
@@ -38,9 +39,13 @@ Run `python scripts/aws/deploy_shared_ecs.py` from an authenticated AWS shell. I
 
 ## Production hardening
 
-- Replace the default EB hostname with ACM + Route 53 HTTPS.
-- Put RDS in private subnets; enable encryption, backups and deletion protection.
-- Store database and signing secrets in Secrets Manager/SSM instead of plain EB environment properties.
+- Replace the default CloudFront hostname with an ACM/Route 53 custom domain.
+- Verify that the shared private RDS instance retains encryption, backups and deletion protection.
+- Keep application and database credentials in the dedicated Secrets Manager secrets listed above.
 - Move SES out of sandbox and verify a domain with DKIM.
 - Set CloudWatch retention and alarms for 5xx rate, instance health and database storage.
 - Run tenant-isolation, backup-restore and invoice tax acceptance tests before real customers.
+
+## Verified deployment state
+
+On 15 September 2026, `/health` returned `{"status":"ok","service":"workshop-os"}`, `/login` returned HTTP 200, and ECS reported an ACTIVE service with desired/running `1/1` and a completed rollout. The shared cluster remained at one EC2 container host, and all temporary database/image-build IAM policies had been removed.

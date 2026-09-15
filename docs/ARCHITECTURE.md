@@ -36,7 +36,7 @@ The application keeps one web process and uses server-side HTML/JavaScript, avoi
 
 ## Scale path
 
-When traffic or uptime requirements grow, move from EB single-instance to CloudFront + ALB + ECS/Fargate, following the Job Hunting Agent reference architecture. Keep the same Docker image and PostgreSQL schema. Add SQS workers for Excel imports, reports and forecast refreshes; add ElastiCache only when measured demand justifies it.
+When measured traffic or uptime requirements outgrow the shared Graviton host, add capacity behind the existing ECS capacity provider or move this task to Fargate without changing the Docker image or PostgreSQL schema. Add SQS workers for Excel imports, reports and forecast refreshes; add ElastiCache only when measured demand justifies it.
 
 ## Offline behaviour
 

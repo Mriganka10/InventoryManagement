@@ -52,3 +52,5 @@ Interactive API documentation is available at `/docs`. All business endpoints re
 See [AWS architecture](docs/ARCHITECTURE.md), [database design](docs/DATABASE_SCHEMA.md), and [deployment runbook](docs/AWS_DEPLOYMENT.md).
 
 Production reuses the existing Kairoz CloudFront, ALB, ECS/EC2, RDS and networking platform. WorkshopOS adds no standalone Elastic Beanstalk instance or RDS instance. SQLite is local-test only.
+
+Live production endpoint: [https://djn5rprshgdy5.cloudfront.net](https://djn5rprshgdy5.cloudfront.net)
