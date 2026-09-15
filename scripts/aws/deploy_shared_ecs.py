@@ -156,7 +156,15 @@ def ensure_database(outputs: dict[str, str], secrets, iam, ssm, ecs) -> str:
     ])
     try:
         time.sleep(10)
-        run_ssm(ssm, instance_id, command, "Bootstrap isolated WorkshopOS database")
+        for attempt in range(3):
+            try:
+                run_ssm(ssm, instance_id, command, "Bootstrap isolated WorkshopOS database")
+                break
+            except RuntimeError as exc:
+                if "AccessDeniedException" not in str(exc) or attempt == 2:
+                    raise
+                print("Database bootstrap permission is still propagating; retrying.")
+                time.sleep(15)
     finally:
         try:
             iam.delete_role_policy(RoleName=instance_role, PolicyName="inventory-database-bootstrap-temporary")
